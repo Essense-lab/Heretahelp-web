@@ -73,7 +73,7 @@ export class UserRepository extends BaseRepository {
 
       const { data, error } = await this.supabase
         .from('profiles')
-        .insert(profileDto)
+        .insert(profileDto as never)
         .select()
         .single()
 
@@ -102,7 +102,7 @@ export class UserRepository extends BaseRepository {
 
       const { data, error } = await this.supabase
         .from('profiles')
-        .update(updateData)
+        .update(updateData as never)
         .eq('id', userId)
         .select()
         .single()

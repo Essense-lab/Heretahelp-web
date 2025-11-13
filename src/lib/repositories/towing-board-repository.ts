@@ -26,7 +26,7 @@ export class TowingBoardRepository extends BaseRepository {
 
       const { data, error } = await this.supabase
         .from('towing_board_posts')
-        .insert(postDto)
+        .insert(postDto as never)
         .select()
         .single()
 
@@ -90,7 +90,7 @@ export class TowingBoardRepository extends BaseRepository {
         .update({ 
           status, 
           updated_at: this.formatTimestamp() 
-        })
+        } as never)
         .eq('id', postId)
 
       if (error) throw error
@@ -107,7 +107,7 @@ export class TowingBoardRepository extends BaseRepository {
           assigned_technician_id: technicianId,
           status: 'ASSIGNED',
           updated_at: this.formatTimestamp() 
-        })
+        } as never)
         .eq('id', postId)
 
       if (error) throw error
@@ -143,7 +143,7 @@ export class TowingBoardRepository extends BaseRepository {
 
       const { data, error } = await this.supabase
         .from('towing_bids')
-        .insert(bidDto)
+        .insert(bidDto as never)
         .select()
         .single()
 
@@ -192,7 +192,7 @@ export class TowingBoardRepository extends BaseRepository {
         .update({ 
           status: 'ACCEPTED',
           updated_at: this.formatTimestamp()
-        })
+        } as never)
         .eq('id', bidId)
 
       if (acceptError) throw acceptError
@@ -203,7 +203,7 @@ export class TowingBoardRepository extends BaseRepository {
         .update({ 
           status: 'REJECTED',
           updated_at: this.formatTimestamp()
-        })
+        } as never)
         .eq('post_id', postId)
         .neq('id', bidId)
 
@@ -224,7 +224,7 @@ export class TowingBoardRepository extends BaseRepository {
         .update({ 
           status: 'REJECTED',
           updated_at: this.formatTimestamp()
-        })
+        } as never)
         .eq('id', bidId)
 
       if (error) throw error
@@ -245,7 +245,7 @@ export class TowingBoardRepository extends BaseRepository {
 
       const { data, error } = await this.supabase
         .from('towing_qa_messages')
-        .insert(messageDto)
+        .insert(messageDto as never)
         .select()
         .single()
 
@@ -275,7 +275,7 @@ export class TowingBoardRepository extends BaseRepository {
     try {
       const { error } = await this.supabase
         .from('towing_qa_messages')
-        .update({ is_read: true })
+        .update({ is_read: true } as never)
         .eq('id', messageId)
 
       if (error) throw error
@@ -317,7 +317,7 @@ export class TowingBoardRepository extends BaseRepository {
         .update({ 
           photo_urls: photoUrls,
           updated_at: this.formatTimestamp()
-        })
+        } as never)
         .eq('id', postId)
 
       if (error) throw error

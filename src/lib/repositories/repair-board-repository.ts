@@ -1,13 +1,18 @@
 import { BaseRepository } from './base-repository'
-import type { 
-  RepairBoardPost, 
-  RepairBoardPostDto, 
-  TechnicianBid, 
+import type { Database } from '@/lib/supabase'
+import type {
+  RepairBoardPost,
+  RepairBoardPostDto,
+  TechnicianBid,
   TechnicianBidDto,
   RepairBoardMessage,
   RepairBoardMessageDto,
-  UserType 
+  UserType,
 } from '@/types'
+
+type RepairBoardPostInsert = Database['public']['Tables']['repair_board_posts']['Insert']
+type RepairBoardPostUpdate = Database['public']['Tables']['repair_board_posts']['Update']
+type TechnicianBidInsert = Database['public']['Tables']['technician_bids']['Insert']
 
 export class RepairBoardRepository extends BaseRepository {
   // ==================== POST MANAGEMENT ====================
@@ -24,7 +29,7 @@ export class RepairBoardRepository extends BaseRepository {
 
       const { data, error } = await this.supabase
         .from('repair_board_posts')
-        .insert(postDto)
+        .insert(postDto as never)
         .select()
         .single()
 
@@ -107,10 +112,10 @@ export class RepairBoardRepository extends BaseRepository {
     try {
       const { error } = await this.supabase
         .from('repair_board_posts')
-        .update({ 
-          status, 
-          updated_at: this.formatTimestamp() 
-        })
+        .update({
+          status,
+          updated_at: this.formatTimestamp(),
+        } as never)
         .eq('id', postId)
 
       if (error) throw error
@@ -146,7 +151,7 @@ export class RepairBoardRepository extends BaseRepository {
 
       const { data, error } = await this.supabase
         .from('technician_bids')
-        .insert(bidDto)
+        .insert(bidDto as never)
         .select()
         .single()
 
@@ -193,10 +198,10 @@ export class RepairBoardRepository extends BaseRepository {
       // 1. Accept the selected bid
       const { error: acceptError } = await this.supabase
         .from('technician_bids')
-        .update({ 
+        .update({
           status: 'ACCEPTED',
           updated_at: this.formatTimestamp()
-        })
+        } as never)
         .eq('id', bidId)
 
       if (acceptError) throw acceptError
@@ -207,7 +212,7 @@ export class RepairBoardRepository extends BaseRepository {
         .update({ 
           status: 'REJECTED',
           updated_at: this.formatTimestamp()
-        })
+        } as never)
         .eq('post_id', postId)
         .neq('id', bidId)
 
@@ -228,7 +233,7 @@ export class RepairBoardRepository extends BaseRepository {
         .update({ 
           status: 'REJECTED',
           updated_at: this.formatTimestamp()
-        })
+        } as never)
         .eq('id', bidId)
 
       if (error) throw error
@@ -249,7 +254,7 @@ export class RepairBoardRepository extends BaseRepository {
 
       const { data, error } = await this.supabase
         .from('repair_board_messages')
-        .insert(messageDto)
+        .insert(messageDto as never)
         .select()
         .single()
 
@@ -279,7 +284,7 @@ export class RepairBoardRepository extends BaseRepository {
     try {
       const { error } = await this.supabase
         .from('repair_board_messages')
-        .update({ is_read: true })
+        .update({ is_read: true } as never)
         .eq('id', messageId)
 
       if (error) throw error
