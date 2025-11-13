@@ -1,18 +1,16 @@
-import { createClientComponentClient, createServerComponentClient } from '@supabase/auth-helpers-nextjs'
-import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-// Client-side Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Supabase environment variables are not configured')
+}
 
-// Client component client
-export const createSupabaseClient = () => createClientComponentClient()
+export const createSupabaseClient = (): SupabaseClient<Database> =>
+  createClient<Database>(supabaseUrl, supabaseAnonKey)
 
-// Server component client
-export const createSupabaseServerClient = () => createServerComponentClient({ cookies })
+export const supabase = createSupabaseClient()
 
 // Database types
 export type Database = {
