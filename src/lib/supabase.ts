@@ -7,7 +7,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Supabase environment variables are not configured')
 }
 
-export const createSupabaseClient = (): SupabaseClient<Database> =>
+export type TypedSupabaseClient = SupabaseClient<Database>
+
+export const createSupabaseClient = (): TypedSupabaseClient =>
   createClient<Database>(supabaseUrl, supabaseAnonKey)
 
 export const supabase = createSupabaseClient()
