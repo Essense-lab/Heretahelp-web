@@ -13,11 +13,13 @@ module.exports = {
         ring: 'hsl(var(--ring))',
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
-        // Brand colors matching the Android app
-        'navy-blue': '#0D1B2A',
-        'silver': '#C0C0C0',
-        'white': '#FFFFFF',
+        card: 'hsl(var(--card))',
+        'card-foreground': 'hsl(var(--card-foreground))',
+        popover: 'hsl(var(--popover))',
+        'popover-foreground': 'hsl(var(--popover-foreground))',
         primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
           50: '#f0f9ff',
           100: '#e0f2fe',
           200: '#bae6fd',
@@ -30,6 +32,31 @@ module.exports = {
           900: '#0c4a6e',
           950: '#0D1B2A', // Navy blue
         },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        'primary-foreground': 'hsl(var(--primary-foreground))',
+        'secondary-foreground': 'hsl(var(--secondary-foreground))',
+        'muted-foreground': 'hsl(var(--muted-foreground))',
+        'accent-foreground': 'hsl(var(--accent-foreground))',
+        'destructive-foreground': 'hsl(var(--destructive-foreground))',
+        // Brand colors matching the Android app
+        'navy-blue': '#0D1B2A',
+        'silver': '#C0C0C0',
+        'white': '#FFFFFF',
         gray: {
           50: '#f9fafb',
           100: '#f3f4f6',
