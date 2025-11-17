@@ -498,8 +498,8 @@ export function ServiceStep({ onSelect, onBack, serviceType }: Props) {
               </span>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-[#0D1B2A]/5 px-3 py-2 text-xs font-medium text-[#0D1B2A]">
-              <span>{resolveTimeLabel(selectedSubcategory, specification)}</span>
-              <span>{resolvePriceLabel(selectedSubcategory, specification)}</span>
+              <span>{selectedSubcategory ? resolveTimeLabel(selectedSubcategory, specification) : '-'}</span>
+              <span>{selectedSubcategory ? resolvePriceLabel(selectedSubcategory, specification) : '-'}</span>
             </div>
           </div>
         )}
