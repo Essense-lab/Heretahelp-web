@@ -121,31 +121,106 @@ export default function CustomerDashboardPage() {
              membership_level`
           )
           .eq('id', user.id)
-          .single()
+          .maybeSingle()
 
-        if (profileError || !data) {
-          throw profileError ?? new Error('Profile not found')
+        if (profileError && (profileError as any).code !== 'PGRST116') {
+          // Real error (not "no rows") – surface it
+          throw profileError
+        }
+
+        let profileRow = data
+
+        // If no profile exists yet, create a default one so the rest of the app can rely on it
+        if (!profileRow) {
+          const defaultProfile = {
+            id: user.id,
+            email: user.email,
+            first_name: null,
+            last_name: null,
+            user_type: 'customer',
+            onboarding_completed: false,
+            membership_level: null,
+          }
+
+          const { data: inserted, error: insertError } = await supabase
+            .from('profiles')
+            .insert(defaultProfile as never)
+            .select(
+              `id,
+               email,
+               first_name,
+               last_name,
+               user_type,
+               onboarding_completed,
+               membership_level`
+            )
+            .single()
+
+          if (insertError) {
+            // If another request created the profile at the same time, recover by re-loading it
+            if ((insertError as any).code === '23505') {
+              const { data: existing, error: reselectError } = await supabase
+                .from('profiles')
+                .select(
+                  `id,
+                   email,
+                   first_name,
+                   last_name,
+                   user_type,
+                   onboarding_completed,
+                   membership_level`
+                )
+                .eq('id', user.id)
+                .maybeSingle()
+
+              if (reselectError || !existing) {
+                throw reselectError ?? new Error('Unable to load profile after conflict')
+              }
+
+              profileRow = existing
+            } else {
+              throw insertError
+            }
+          } else if (!inserted) {
+            throw new Error('Unable to create profile')
+          } else {
+            profileRow = inserted
+          }
         }
 
         if (!isMounted) return
 
-        setProfile({
-          id: data.id,
-          firstName: data.first_name ?? 'Customer',
-          lastName: data.last_name ?? '',
-          userType: data.user_type ?? 'CUSTOMER',
-          onboardingCompleted: Boolean(data.onboarding_completed),
-          membershipLevel: data.membership_level,
-        })
+        const profilePayload: Profile = {
+          id: profileRow.id,
+          firstName: profileRow.first_name ?? 'Customer',
+          lastName: profileRow.last_name ?? '',
+          userType: profileRow.user_type ?? 'CUSTOMER',
+          onboardingCompleted: Boolean(profileRow.onboarding_completed),
+          membershipLevel: profileRow.membership_level,
+        }
 
-        const { data: pointsData } = await supabase
-          .from('customer_points')
-          .select('total_points')
-          .eq('user_id', user.id)
-          .maybeSingle()
+        if (isMounted) {
+          setProfile(profilePayload)
+          if (!profilePayload.onboardingCompleted) {
+            router.replace('/onboarding')
+            return
+          }
+        }
 
-        if (isMounted && pointsData?.total_points != null) {
-          setPoints(pointsData.total_points)
+        try {
+          const { data: pointsData, error: pointsError } = await supabase
+            .from('customer_points')
+            .select('total_points')
+            .eq('customer_id', user.id)
+            .maybeSingle()
+
+          if (pointsError) {
+            console.warn('Unable to load reward points:', pointsError.message)
+          } else if (isMounted && pointsData?.total_points != null) {
+            setPoints(pointsData.total_points)
+          }
+        } catch (pointsException) {
+          console.warn('Skipping customer points fetch:', pointsException)
         }
       } catch (loadError: any) {
         console.error('Failed to load dashboard profile:', loadError)
@@ -170,6 +245,9 @@ export default function CustomerDashboardPage() {
     switch (service.title) {
       case 'Car Repair':
         router.push('/dashboard/car-repair?type=car')
+        break
+      case 'Towing':
+        router.push('/towing/onboarding')
         break
       case 'Tire Repairs':
         router.push('/dashboard/car-repair?type=tire')

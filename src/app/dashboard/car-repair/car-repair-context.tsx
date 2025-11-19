@@ -26,6 +26,7 @@ type VehicleInfo = {
   tireSize?: string
   color?: string
   licensePlate?: string
+  recordId?: string
 }
 
 type ServiceSelection = {

@@ -1,8 +1,13 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createSupabaseClient } from '@/lib/supabase'
 import type { Database } from '@/lib/supabase'
 
 export class BaseRepository {
-  protected supabase = createSupabaseClient()
+  protected supabase: SupabaseClient
+
+  constructor(client?: SupabaseClient) {
+    this.supabase = client ?? createSupabaseClient()
+  }
 
   protected handleError(error: any, operation: string): never {
     console.error(`Error in ${operation}:`, error)

@@ -2,17 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { createSupabaseClient } from '@/lib/supabase'
-import { Loader2, Eye, EyeOff } from 'lucide-react'
+import { Loader2, Eye, EyeOff, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const BRAND_BACKGROUND = 'bg-[#0D1B2A]'
 const BRAND_LIGHT_TEXT = 'text-[#B3D4FC]'
 const BRAND_PRIMARY = 'bg-[#0D1B2A]'
-
-const manIconSrc = '/branding/manicon.png'
 
 export default function SignInPage() {
   const router = useRouter()
@@ -105,17 +102,21 @@ export default function SignInPage() {
   }
 
   return (
-    <div className={`min-h-screen ${BRAND_BACKGROUND} flex flex-col items-center justify-center px-4 py-10 text-white`}>
+    <div className={`relative min-h-screen ${BRAND_BACKGROUND} flex flex-col items-center justify-center px-4 py-10 text-white`}>
+      <button
+        type="button"
+        onClick={() => router.replace('/')}
+        className="absolute right-6 top-6 rounded-full bg-white/10 p-2 text-white transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        aria-label="Close sign in"
+      >
+        <X className="h-5 w-5" />
+      </button>
+
       <div className="w-full max-w-xl space-y-6">
         <header className="flex flex-col items-center space-y-4">
-          <div className="relative h-16 w-40">
-            <Image
-              src={manIconSrc}
-              alt="HereTaHelp logo"
-              fill
-              className="object-contain"
-              priority
-            />
+          <div className="text-center">
+            <p className="text-sm uppercase tracking-[0.3em] text-white/70">Here Ta Help</p>
+            <p className="text-2xl font-semibold text-white mt-1">Account Access</p>
           </div>
           <div className="flex items-center text-sm font-semibold text-white">
             <button

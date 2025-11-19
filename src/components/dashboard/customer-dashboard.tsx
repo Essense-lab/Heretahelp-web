@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { UserProfile } from '@/types'
 import { DashboardLayout } from './dashboard-layout'
 import { Plus, Car, Anchor, Truck, CircleDot, Key, TruckIcon, Clock, MapPin } from 'lucide-react'
+import { SupportChatButton } from '@/components/support-chat-button'
 
 interface CustomerDashboardProps {
   profile: UserProfile
@@ -71,12 +72,12 @@ export function CustomerDashboard({ profile }: CustomerDashboardProps) {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="mx-auto grid w-full max-w-5xl grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 place-items-center">
             {serviceTypes.map((service) => (
               <button
                 key={service.name}
                 onClick={() => handleServiceSelect(service.name)}
-                className="p-4 border border-gray-200 rounded-lg hover:border-primary hover:shadow-md transition-all text-left"
+                className="w-full max-w-xs p-4 border border-gray-200 rounded-lg hover:border-primary hover:shadow-md transition-all text-left"
               >
                 <div className="flex items-center mb-3">
                   <div className={`p-2 rounded-lg ${service.color} mr-3`}>
@@ -157,6 +158,7 @@ export function CustomerDashboard({ profile }: CustomerDashboardProps) {
           </div>
         </div>
       </div>
+      <SupportChatButton href="/contact" />
     </DashboardLayout>
   )
 }

@@ -455,6 +455,7 @@ export default function TrackingPage() {
   const focusId = searchParams?.get("focus") ?? null
   const focusRef = useRef<HTMLDivElement | null>(null)
   const focusHandledRef = useRef(false)
+  const previousStatusesRef = useRef<Map<string, string>>(new Map())
 
   const loadRequests = useCallback(async () => {
     setLoading(true)
@@ -665,6 +666,57 @@ export default function TrackingPage() {
   useEffect(() => {
     loadRequests()
   }, [loadRequests])
+
+  // Play a short audio cue when a request moves into EN_ROUTE status
+  useEffect(() => {
+    if (!requests.length) {
+      previousStatusesRef.current.clear()
+      return
+    }
+
+    const previous = previousStatusesRef.current
+    let shouldPlayEnRouteSound = false
+
+    requests.forEach((request) => {
+      const key = request.id
+      const currentStatus = (request.status || "").toUpperCase()
+      const previousStatus = previous.get(key)
+
+      if (currentStatus === "EN_ROUTE" && previousStatus && previousStatus !== "EN_ROUTE") {
+        shouldPlayEnRouteSound = true
+      }
+
+      previous.set(key, currentStatus)
+    })
+
+    if (shouldPlayEnRouteSound && typeof window !== "undefined") {
+      try {
+        const AudioContextCtor =
+          (window as any).AudioContext || (window as any).webkitAudioContext
+        if (!AudioContextCtor) return
+
+        const context = new AudioContextCtor()
+        const oscillator = context.createOscillator()
+        const gain = context.createGain()
+
+        oscillator.type = "sine"
+        oscillator.frequency.value = 880
+
+        oscillator.connect(gain)
+        gain.connect(context.destination)
+
+        const now = context.currentTime
+        gain.gain.setValueAtTime(0, now)
+        gain.gain.linearRampToValueAtTime(0.25, now + 0.02)
+        gain.gain.linearRampToValueAtTime(0, now + 0.35)
+
+        oscillator.start(now)
+        oscillator.stop(now + 0.4)
+      } catch {
+        // If audio fails (e.g. autoplay restrictions), silently ignore.
+      }
+    }
+  }, [requests])
 
   useEffect(() => {
     if (!focusId || requests.length === 0 || focusHandledRef.current) return

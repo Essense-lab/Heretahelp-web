@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { BaseRepository } from './base-repository'
 
 export type TimeSlotRecord = {
@@ -44,6 +45,10 @@ type TechnicianProfileRow = {
 }
 
 export class AvailabilityRepository extends BaseRepository {
+  constructor(client?: SupabaseClient) {
+    super(client)
+  }
+
   async fetchAvailableDates(limit = 60): Promise<string[]> {
     try {
       const { data, error } = await this.supabase

@@ -1,65 +1,67 @@
 'use client'
 
+import Image from 'next/image'
+
 const testimonials = [
   {
     content: "Here Ta Help saved my day! My car broke down on the highway and within 30 minutes, a certified technician was there to help. Professional, fast, and reasonably priced.",
     author: {
       name: 'Sarah Johnson',
       role: 'Small Business Owner',
-      image: '/api/placeholder/64/64',
+      image: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
     },
     rating: 5,
-    service: 'Car Repair'
+    service: 'Car Repair',
   },
   {
     content: "As a boat owner, finding reliable marine repair services was always a challenge. Here Ta Help connected me with an expert who fixed my engine issues right at the marina.",
     author: {
       name: 'Mike Rodriguez',
       role: 'Boat Enthusiast',
-      image: '/api/placeholder/64/64',
+      image: 'https://images.unsplash.com/photo-1504593811423-6dd665756598?auto=format&fit=crop&w=256&q=80',
     },
     rating: 5,
-    service: 'Boat Repair'
+    service: 'Boat Repair',
   },
   {
     content: "I run a small trucking company and Here Ta Help has been a game-changer for our fleet maintenance. Quick response times and quality work every time.",
     author: {
       name: 'David Chen',
       role: 'Fleet Manager',
-      image: '/api/placeholder/64/64',
+      image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=256&q=80',
     },
     rating: 5,
-    service: 'Diesel Truck'
+    service: 'Diesel Truck',
   },
   {
     content: "Got locked out of my car at 2 AM. The locksmith arrived in 20 minutes and had me back in my car quickly. Excellent emergency service!",
     author: {
       name: 'Jennifer Williams',
       role: 'Nurse',
-      image: '/api/placeholder/64/64',
+      image: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=256&q=80',
     },
     rating: 5,
-    service: 'Locksmith'
+    service: 'Locksmith',
   },
   {
     content: "The towing service was professional and careful with my classic car. They understood the value and treated it with the respect it deserved.",
     author: {
       name: 'Robert Thompson',
-      role: 'Car Collector',
-      image: '/api/placeholder/64/64',
+      role: 'Car Dealer',
+      image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&q=80',
     },
     rating: 5,
-    service: 'Towing'
+    service: 'Towing',
   },
   {
     content: "Flat tire on a busy street, but the tire technician made it safe and quick. Great service and fair pricing. Highly recommend!",
     author: {
       name: 'Lisa Anderson',
       role: 'Marketing Director',
-      image: '/api/placeholder/64/64',
+      image: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=256&q=80',
     },
     rating: 5,
-    service: 'Tire Services'
+    service: 'Tire Services',
   },
 ]
 
@@ -97,13 +99,16 @@ export function Testimonials() {
                 </p>
               </div>
               
-              <div className="mt-6 flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="h-12 w-12 rounded-full bg-primary-100 flex items-center justify-center">
-                    <span className="text-primary font-medium text-lg">
-                      {testimonial.author.name.split(' ').map(n => n[0]).join('')}
-                    </span>
-                  </div>
+              <div className="mt-6 flex items-center gap-4">
+                <div className="relative h-12 w-12 rounded-full overflow-hidden bg-primary-100">
+                  <Image
+                    src={testimonial.author.image}
+                    alt={testimonial.author.name}
+                    fill
+                    className="object-cover"
+                    sizes="48px"
+                    priority={index < 3}
+                  />
                 </div>
                 <div className="ml-4">
                   <div className="text-base font-medium text-gray-900">

@@ -1,11 +1,15 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { navigationItems, resolveNavItemActive } from "@/components/dashboard/dashboard-layout"
 import { createSupabaseClient } from "@/lib/supabase"
+import { geocodeAddress } from "@/lib/geocode"
+import { AppointmentRepository } from "@/lib/repositories/appointment-repository"
+import { LiveTrackingStatus } from "./live-tracking-status"
+import { LiveTrackingMap } from "./live-tracking-map"
 
 const NAVY = "#0D1B2A"
 
@@ -60,6 +64,28 @@ const STATUS_STYLES: Record<string, { icon: string; label: string; text: string;
   },
 }
 
+const ACTIVE_APPOINTMENT_STATUSES = ["SCHEDULED", "CONFIRMED", "REASSIGNING", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"]
+
+const APPOINTMENT_SELECT = `
+  id,
+  service_name,
+  appointment_date,
+  time_slot,
+  status,
+  technician_name,
+  technician_photo_url,
+  service_address,
+  service_city,
+  service_state,
+  service_zip_code,
+  estimated_price,
+  final_price,
+  service_latitude,
+  service_longitude,
+  technician_latitude,
+  technician_longitude
+`
+
 interface ScheduleAppointment {
   id: string
   serviceName: string
@@ -74,6 +100,49 @@ interface ScheduleAppointment {
   serviceZipCode: string | null
   estimatedPrice: number | null
   finalPrice: number | null
+  serviceLatitude: number | null
+  serviceLongitude: number | null
+  technicianLatitude: number | null
+  technicianLongitude: number | null
+}
+
+const mapAppointments = (rows: any[]): ScheduleAppointment[] => {
+  return (rows || []).map((apt) => ({
+    id: apt.id,
+    serviceName: apt.service_name ?? "Service",
+    appointmentDate: apt.appointment_date ?? "",
+    timeSlot: apt.time_slot ?? "",
+    status: apt.status ?? "SCHEDULED",
+    technicianName: apt.technician_name,
+    technicianPhotoUrl: apt.technician_photo_url,
+    serviceAddress: apt.service_address,
+    serviceCity: apt.service_city,
+    serviceState: apt.service_state,
+    serviceZipCode: apt.service_zip_code,
+    estimatedPrice: apt.estimated_price,
+    finalPrice: apt.final_price,
+    serviceLatitude: typeof apt.service_latitude === "number" ? apt.service_latitude : null,
+    serviceLongitude: typeof apt.service_longitude === "number" ? apt.service_longitude : null,
+    technicianLatitude: typeof apt.technician_latitude === "number" ? apt.technician_latitude : null,
+    technicianLongitude: typeof apt.technician_longitude === "number" ? apt.technician_longitude : null,
+  }))
+}
+
+const formatDisplayDate = (date: string) => {
+  if (!date) return "Date pending"
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return date
+  return parsed.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+}
+
+const formatPrice = (value: number | null | undefined) => {
+  if (value == null) return "—"
+  return `$${value.toFixed(2)}`
+}
+
+const formatTimeWindow = (slot: string) => {
+  if (!slot) return "Pending"
+  return slot
 }
 
 export default function SchedulePage() {
@@ -90,106 +159,149 @@ export default function SchedulePage() {
   const [completed, setCompleted] = useState<ScheduleAppointment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [derivedServiceCoords, setDerivedServiceCoords] = useState<Record<string, { latitude: number; longitude: number }>>({})
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [showRescheduleDialog, setShowRescheduleDialog] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const applyScheduleState = useCallback(
+    ({ userId, rows }: { userId: string; rows: any[] }) => {
+      setCurrentUserId(userId)
+      const mapped = mapAppointments(rows)
+      const upcomingAppointment =
+        mapped.find((apt) => ACTIVE_APPOINTMENT_STATUSES.includes(apt.status)) ?? null
+      const completedAppointments = mapped.filter((apt) => apt.status === "COMPLETED")
+      setUpcoming(upcomingAppointment)
+      setCompleted(completedAppointments)
+      setDerivedServiceCoords((previous) => {
+        if (!Object.keys(previous).length) return previous
+        const retained: Record<string, { latitude: number; longitude: number }> = {}
+        mapped.forEach((apt) => {
+          if (previous[apt.id]) {
+            retained[apt.id] = previous[apt.id]
+          }
+        })
+        return retained
+      })
+    },
+    []
+  )
+
+  const loadSchedule = useCallback(async () => {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError) throw userError
+    if (!user) {
+      router.replace("/auth/sign-in")
+      return null
+    }
+
+    const { data, error: appointmentsError } = await supabase
+      .from("service_appointments")
+      .select(APPOINTMENT_SELECT)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+
+    if (appointmentsError) throw appointmentsError
+
+    return { userId: user.id, rows: data ?? [] }
+  }, [router, supabase])
 
   useEffect(() => {
     let isMounted = true
-
-    const loadSchedule = async () => {
-      try {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser()
-
-        if (userError) throw userError
-        if (!user) {
-          router.replace("/auth/sign-in")
-          return
-        }
-
-        const { data, error: appointmentsError } = await supabase
-          .from("service_appointments")
-          .select(
-            `id,
-             service_name,
-             appointment_date,
-             time_slot,
-             status,
-             technician_name,
-             technician_photo_url,
-             service_address,
-             service_city,
-             service_state,
-             service_zip_code,
-             estimated_price,
-             final_price`
-          )
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-
-        if (appointmentsError) throw appointmentsError
-
-        if (!isMounted) return
-
-        const mapped = (data || []).map((apt) => ({
-          id: apt.id,
-          serviceName: apt.service_name ?? "Service",
-          appointmentDate: apt.appointment_date ?? "",
-          timeSlot: apt.time_slot ?? "",
-          status: apt.status ?? "SCHEDULED",
-          technicianName: apt.technician_name,
-          technicianPhotoUrl: apt.technician_photo_url,
-          serviceAddress: apt.service_address,
-          serviceCity: apt.service_city,
-          serviceState: apt.service_state,
-          serviceZipCode: apt.service_zip_code,
-          estimatedPrice: apt.estimated_price,
-          finalPrice: apt.final_price,
-        }))
-
-        const activeStatuses = [
-          "SCHEDULED",
-          "CONFIRMED",
-          "REASSIGNING",
-          "EN_ROUTE",
-          "ARRIVED",
-          "IN_PROGRESS",
-        ]
-
-        const upcomingAppointment = mapped.find((apt) => activeStatuses.includes(apt.status)) ?? null
-        const completedAppointments = mapped.filter((apt) => apt.status === "COMPLETED")
-
-        setUpcoming(upcomingAppointment)
-        setCompleted(completedAppointments)
-      } catch (loadError: any) {
-        console.error("Failed to load schedule page:", loadError)
-        if (isMounted) setError(loadError?.message ?? "Unable to load your schedule right now.")
-      } finally {
-        if (isMounted) setLoading(false)
-      }
-    }
+    setLoading(true)
 
     loadSchedule()
+      .then((result) => {
+        if (!isMounted || !result) return
+        applyScheduleState(result)
+        setError(null)
+      })
+      .catch((loadError: any) => {
+        console.error("Failed to load schedule page:", loadError)
+        if (isMounted) {
+          setError(loadError?.message ?? "Unable to load your schedule right now.")
+        }
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false)
+      })
+
     return () => {
       isMounted = false
     }
-  }, [router, supabase])
+  }, [applyScheduleState, loadSchedule])
 
-  const formatDisplayDate = (date: string) => {
-    if (!date) return "Date pending"
-    const parsed = new Date(date)
-    if (Number.isNaN(parsed.getTime())) return date
-    return parsed.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+  const refreshAppointments = useCallback(async () => {
+    try {
+      const result = await loadSchedule()
+      if (result) {
+        applyScheduleState(result)
+        setError(null)
+      }
+    } catch (refreshError: any) {
+      console.error("Failed to refresh schedule:", refreshError)
+      setError(refreshError?.message ?? "Unable to refresh your schedule right now.")
+    }
+  }, [applyScheduleState, loadSchedule])
+
+  const handleCancelAppointment = async () => {
+    if (!upcoming || !currentUserId) return
+    setActionLoading(true)
+    setActionError(null)
+    setActionMessage(null)
+
+    try {
+      const repository = new AppointmentRepository(supabase)
+      await repository.cancelAppointment({
+        appointmentId: upcoming.id,
+        cancelledBy: currentUserId,
+        reason: "Cancelled by customer",
+        cancellationFee: 25,
+      })
+      setActionMessage("Your appointment was cancelled. A $25 fee was applied to cover technician travel.")
+      setShowCancelDialog(false)
+      await refreshAppointments()
+    } catch (cancelError: any) {
+      console.error("Failed to cancel appointment:", cancelError)
+      setActionError(cancelError?.message ?? "Failed to cancel appointment. Please try again.")
+    } finally {
+      setActionLoading(false)
+    }
   }
 
-  const formatPrice = (value: number | null) => {
-    if (value == null) return "—"
-    return `$${value.toFixed(2)}`
-  }
+  const handleRescheduleAppointment = async () => {
+    if (!upcoming || !currentUserId) return
+    setActionLoading(true)
+    setActionError(null)
+    setActionMessage(null)
 
-  const formatTimeWindow = (slot: string) => {
-    if (!slot) return "Pending"
-    return slot
+    try {
+      const repository = new AppointmentRepository(supabase)
+      const { creditAmount } = await repository.rescheduleAppointment({
+        appointmentId: upcoming.id,
+        userId: currentUserId,
+        rescheduleFee: 25,
+      })
+      const formattedCredit = creditAmount > 0 ? creditAmount.toFixed(2) : "0.00"
+      setActionMessage(
+        `We cancelled your appointment and added $${formattedCredit} in credit after the $25 reschedule fee. You can apply it to your next booking.`
+      )
+      setShowRescheduleDialog(false)
+      await refreshAppointments()
+      router.push("/dashboard/car-repair?type=car")
+    } catch (rescheduleError: any) {
+      console.error("Failed to reschedule appointment:", rescheduleError)
+      setActionError(rescheduleError?.message ?? "Failed to reschedule appointment. Please try again.")
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const renderStatusBanner = (status: string) => {
@@ -201,6 +313,88 @@ export default function SchedulePage() {
       </div>
     )
   }
+
+  useEffect(() => {
+    if (!upcoming) return
+    if (upcoming.serviceLatitude != null && upcoming.serviceLongitude != null) return
+    if (!upcoming.serviceAddress || !upcoming.serviceCity || !upcoming.serviceState || !upcoming.serviceZipCode) return
+
+    let cancelled = false
+
+    const geocode = async () => {
+      const coords = await geocodeAddress({
+        street: upcoming.serviceAddress!,
+        city: upcoming.serviceCity!,
+        state: upcoming.serviceState!,
+        zipCode: upcoming.serviceZipCode!,
+      })
+
+      if (!coords || cancelled) return
+
+      setDerivedServiceCoords((previous) => ({
+        ...previous,
+        [upcoming.id]: coords,
+      }))
+
+      try {
+        await supabase
+          .from("service_appointments")
+          .update({
+            service_latitude: coords.latitude,
+            service_longitude: coords.longitude,
+          } as never)
+          .eq("id", upcoming.id)
+      } catch (updateError) {
+        console.warn("Unable to persist service coordinates:", updateError)
+      }
+    }
+
+    geocode()
+
+    return () => {
+      cancelled = true
+    }
+  }, [supabase, upcoming])
+
+  const renderLiveTracking = (appointment: ScheduleAppointment) => {
+    if (appointment.status !== "EN_ROUTE") return null
+
+    const serviceCoords =
+      appointment.serviceLatitude != null && appointment.serviceLongitude != null
+        ? { latitude: appointment.serviceLatitude, longitude: appointment.serviceLongitude }
+        : derivedServiceCoords[appointment.id]
+
+    const hasServiceLocation = Boolean(serviceCoords)
+    const hasTechLocation =
+      appointment.technicianLatitude != null && appointment.technicianLongitude != null
+
+    return (
+      <div className="mt-6 space-y-4 rounded-2xl border border-sky-100 bg-sky-50 p-4">
+        <p className="text-sm font-semibold text-sky-800 flex items-center gap-2">
+          <span aria-hidden>🚗</span>
+          Live technician tracking
+        </p>
+        <p className="text-xs text-sky-900/80">
+          {hasServiceLocation
+            ? "Technician location is updated every few seconds while they are en route."
+            : "Technician location is updated every few seconds while they are en route. Service coordinates are still being determined, so the map is centered on the technician until we finish geocoding your address."}
+        </p>
+        {hasTechLocation && (
+          <LiveTrackingMap
+            serviceLatitude={serviceCoords?.latitude}
+            serviceLongitude={serviceCoords?.longitude}
+            technicianLatitude={appointment.technicianLatitude!}
+            technicianLongitude={appointment.technicianLongitude!}
+          />
+        )}
+        <LiveTrackingStatus appointmentId={appointment.id} />
+      </div>
+    )
+  }
+
+  const canModifyAppointment = Boolean(
+    upcoming && !["CANCELLED", "COMPLETED", "NO_SHOW"].includes(upcoming.status)
+  )
 
   if (loading) {
     return (
@@ -257,6 +451,20 @@ export default function SchedulePage() {
       </div>
 
       <main className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-10">
+        {(actionMessage || actionError) && (
+          <div className="space-y-3">
+            {actionMessage && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                {actionMessage}
+              </div>
+            )}
+            {actionError && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {actionError}
+              </div>
+            )}
+          </div>
+        )}
         {upcoming ? (
           <section className="space-y-4 rounded-3xl bg-white p-8 shadow-lg">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -264,7 +472,7 @@ export default function SchedulePage() {
               {renderStatusBanner(upcoming.status)}
             </div>
 
-            <div className="flex flex-col gap-6 lg:flex-row">
+              <div className="flex flex-col gap-6 lg:flex-row">
               <div className="flex-1 space-y-4">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-gray-500">Service</p>
@@ -345,6 +553,37 @@ export default function SchedulePage() {
                   </Link>
                 </div>
               </div>
+
+              {canModifyAppointment && (
+                <div className="flex flex-col gap-3 border-t border-gray-100 pt-6 sm:flex-row sm:items-center sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionMessage(null)
+                      setActionError(null)
+                      setShowRescheduleDialog(true)
+                    }}
+                    disabled={actionLoading}
+                    className="inline-flex items-center justify-center rounded-2xl border border-[#0D1B2A] px-6 py-3 text-sm font-semibold text-[#0D1B2A] transition hover:bg-[#0D1B2A] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Reschedule
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionMessage(null)
+                      setActionError(null)
+                      setShowCancelDialog(true)
+                    }}
+                    disabled={actionLoading}
+                    className="inline-flex items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-6 py-3 text-sm font-semibold text-rose-600 transition hover:border-rose-500 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancel service
+                  </button>
+                </div>
+              )}
+
+              {renderLiveTracking(upcoming)}
             </div>
           </section>
         ) : (
@@ -408,6 +647,160 @@ export default function SchedulePage() {
           )}
         </section>
       </main>
+
+      {showCancelDialog && upcoming && (
+        <CancelAppointmentDialog
+          appointment={upcoming}
+          loading={actionLoading}
+          onConfirm={handleCancelAppointment}
+          onCancel={() => {
+            if (!actionLoading) setShowCancelDialog(false)
+          }}
+        />
+      )}
+
+      {showRescheduleDialog && upcoming && (
+        <RescheduleAppointmentDialog
+          appointment={upcoming}
+          loading={actionLoading}
+          onConfirm={handleRescheduleAppointment}
+          onCancel={() => {
+            if (!actionLoading) setShowRescheduleDialog(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function CancelAppointmentDialog({
+  appointment,
+  loading,
+  onConfirm,
+  onCancel,
+}: {
+  appointment: ScheduleAppointment
+  loading: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const cancellationFee = 25
+  const originalAmount = appointment.finalPrice ?? appointment.estimatedPrice ?? 0
+  const refundAmount = Math.max(originalAmount - cancellationFee, 0)
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4">
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 text-left shadow-2xl space-y-4">
+        <div className="text-center text-4xl" aria-hidden>
+          ⚠️
+        </div>
+        <div className="space-y-2 text-center">
+          <h3 className="text-xl font-bold text-[#0D1B2A]">Cancel appointment?</h3>
+          <p className="text-sm text-gray-600">
+            Cancelling less than 24 hours before your scheduled time incurs a $25 fee to cover technician travel.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold text-amber-700">Cancellation policy</p>
+          <p className="mt-2">A $25 cancellation fee will be deducted from your original payment.</p>
+        </div>
+
+        {originalAmount > 0 && (
+          <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-700 space-y-2">
+            <div className="flex items-center justify-between">
+              <span>Original amount</span>
+              <span className="font-semibold">${originalAmount.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Cancellation fee</span>
+              <span className="font-semibold text-rose-600">- $25.00</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-gray-200 pt-2">
+              <span>Refund to your payment method</span>
+              <span className="font-semibold">${refundAmount.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-2xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
+          >
+            Keep appointment
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className="rounded-2xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? "Processing..." : "Cancel service"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RescheduleAppointmentDialog({
+  appointment,
+  loading,
+  onConfirm,
+  onCancel,
+}: {
+  appointment: ScheduleAppointment
+  loading: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4">
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 text-left shadow-2xl space-y-4">
+        <div className="text-center text-4xl" aria-hidden>
+          📅
+        </div>
+        <div className="space-y-2 text-center">
+          <h3 className="text-xl font-bold text-[#0D1B2A]">Reschedule appointment?</h3>
+          <p className="text-sm text-gray-600">
+            We’ll cancel your current slot, apply a $25 rescheduling fee, and add the remaining balance as credit you can
+            use when you book again.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-2">
+          <p className="font-semibold text-amber-700">Rescheduling policy</p>
+          <p>A $25 rescheduling fee will be charged.</p>
+          <p>You’ll go through the full booking flow again to select a new time.</p>
+        </div>
+
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-700">
+          <p className="font-semibold text-gray-800">{appointment.serviceName}</p>
+          <p className="mt-1 text-xs text-gray-500">
+            Current: {formatDisplayDate(appointment.appointmentDate)} · {formatTimeWindow(appointment.timeSlot)}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-2xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
+          >
+            Keep appointment
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className="rounded-2xl bg-[#0D1B2A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0A1625] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? "Processing..." : "Reschedule appointment"}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

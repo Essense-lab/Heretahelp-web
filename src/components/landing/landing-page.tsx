@@ -9,6 +9,7 @@ import { Testimonials } from './testimonials'
 import { CTA } from './cta'
 import { Footer } from './footer'
 import { Header } from './header'
+import { SupportChatButton } from '@/components/support-chat-button'
 
 export function LandingPage() {
   const router = useRouter()
@@ -23,7 +24,7 @@ export function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <Header onSignIn={handleSignIn} onGetStarted={handleGetStarted} />
+      <Header />
       
       <main>
         <Hero onGetStarted={handleGetStarted} />
@@ -35,6 +36,7 @@ export function LandingPage() {
       </main>
       
       <Footer />
+      <SupportChatButton />
     </div>
   )
 }

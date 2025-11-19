@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useCarRepair } from '../car-repair-context'
 import { createSupabaseClient } from '@/lib/supabase'
+import { geocodeAddress } from '@/lib/geocode'
 import { BookingReceiptRepository } from '@/lib/repositories/booking-receipt-repository'
 import { BookingServiceRepository } from '@/lib/repositories/booking-service-repository'
 
@@ -17,8 +18,33 @@ const HEADLINE_MAP = {
   wash: 'Mobile Wash Request',
 } as const
 
+const DEFAULT_SLOT_START = '09:00:00'
+const DEFAULT_SLOT_END = '10:00:00'
+
+function parseTimeLabel(label: string | undefined): string {
+  if (!label) return DEFAULT_SLOT_START
+  const trimmed = label.trim().toUpperCase()
+  const match = trimmed.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/)
+  if (!match) return DEFAULT_SLOT_START
+  let hours = parseInt(match[1], 10)
+  const minutes = match[2]
+  const period = match[3]
+  if (period === 'PM' && hours < 12) hours += 12
+  if (period === 'AM' && hours === 12) hours = 0
+  return `${String(hours).padStart(2, '0')}:${minutes}:00`
+}
+
+function getSlotTimes(range: string | undefined) {
+  if (!range) return { startTime: DEFAULT_SLOT_START, endTime: DEFAULT_SLOT_END }
+  const normalized = range.replace(/–/g, '-')
+  const [startRaw, endRaw] = normalized.split('-').map((part) => part.trim())
+  const startTime = parseTimeLabel(startRaw)
+  const endTime = parseTimeLabel(endRaw || startRaw)
+  return { startTime, endTime }
+}
+
 export function CheckoutStep({ onBack, onNext }: Props) {
-  const { location, vehicle, service, schedule } = useCarRepair()
+  const { location, vehicle, service, schedule, setConfirmation } = useCarRepair()
 
   // Customer information state
   const [customerInfo, setCustomerInfo] = useState({
@@ -51,88 +77,133 @@ export function CheckoutStep({ onBack, onNext }: Props) {
 
     setIsProcessing(true)
 
-    // Simulate payment processing (replace with actual API call)
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, 2000))
 
-      // For demo purposes, simulate success (in real app, check actual payment result)
-      const paymentSuccessful = true
-
-      if (paymentSuccessful) {
-        // Generate confirmation number
-        setConfirmationNumber(`BK${Date.now().toString().slice(-8)}`)
-
-        // Save booking data to database
-        const supabase = createSupabaseClient()
-        const bookingService = new BookingServiceRepository(supabase)
-        const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-        console.log('🔍 Auth check:', { user: user?.id, error: authError })
-
-        if (authError) {
-          console.error('❌ Authentication error:', authError)
-          throw new Error('User not authenticated')
-        }
-
-        if (!user) {
-          console.error('❌ No user found')
-          throw new Error('User not authenticated')
-        }
-
-        if (user && service && location && vehicle) {
-          await bookingService.createBooking({
-            userId: user.id,
-            serviceName: service.title,
-            appointmentDate: schedule?.date,
-            timeSlot: schedule?.timeSlot,
-            serviceAddress: location.streetAddress,
-            serviceCity: location.city,
-            serviceState: location.state,
-            serviceZipCode: location.zipCode,
-            vehicleYear: vehicle.year,
-            vehicleMake: vehicle.make,
-            vehicleModel: vehicle.model,
-            vehicleEngine: vehicle.engineSize,
-            vehicleVin: vehicle.vin,
-            technicianName: schedule?.technicianName,
-            technicianPhotoUrl: schedule?.technicianPhotoUrl,
-            estimatedPrice: subtotal,
-            finalPrice: total,
-            status: 'CONFIRMED',
-            confirmationNumber: confirmationNumber,
-            paymentMethod: `Credit Card (****${cardNumber.slice(-4)})`,
-            notes: schedule?.notes,
-          })
-        }
-
-        // Send booking receipt via email and SMS
-        const receiptRepo = new BookingReceiptRepository()
-
-        const vehicleInfoStr = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : 'Vehicle not specified'
-        const paymentMethodStr = `Credit Card (****${cardNumber.slice(-4)})`
-
-        await receiptRepo.sendBookingReceipt({
-          customerEmail: customerInfo.email,
-          customerPhone: customerInfo.phone,
-          customerName: customerInfo.name,
-          appointmentId: confirmationNumber,
-          serviceName: service?.title || 'Service',
-          serviceCategory: service?.category || 'Car Repair',
-          appointmentDate: schedule?.date || 'To be scheduled',
-          timeSlot: schedule?.timeSlot || 'To be scheduled',
-          serviceAddress: location?.streetAddress || 'Address not specified',
-          vehicleInfo: vehicleInfoStr,
-          totalAmount: total,
-          paymentMethod: paymentMethodStr,
-          confirmationNumber: confirmationNumber,
-        })
-
-        setShowPaymentSuccessDialog(true)
-      } else {
-        setShowPaymentFailedDialog(true)
+      if (!service || !location || !vehicle || !schedule) {
+        throw new Error('Missing appointment details')
       }
+
+      const supabase = createSupabaseClient()
+      const bookingService = new BookingServiceRepository(supabase)
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser()
+
+      if (authError || !user) {
+        throw authError ?? new Error('User not authenticated')
+      }
+
+      const paymentMethodLabel = `Credit Card (****${cardNumber.slice(-4)})`
+      const confirmationCode = `BK${Date.now().toString().slice(-8)}`
+      setConfirmationNumber(confirmationCode)
+
+      const toInt = (value: string | undefined, fallback: number) => {
+        if (!value) return fallback
+        const numeric = parseInt(value.replace(/[^0-9]/g, ''), 10)
+        return Number.isFinite(numeric) ? numeric : fallback
+      }
+
+      const normalizeName = (name: string) => name.trim() || 'Customer'
+      const normalizePhone = (phone: string | undefined) => (phone?.trim() ? phone.trim() : '000-000-0000')
+      const normalizeEmail = (email: string | undefined) => email?.trim() || user.email || 'customer@heretahelp.online'
+
+      const { startTime, endTime } = getSlotTimes(schedule.timeSlot)
+      const appointmentStatus = 'SCHEDULED'
+
+      const geocodedLocation = await geocodeAddress({
+        street: location.streetAddress,
+        city: location.city,
+        state: location.state,
+        zipCode: location.zipCode,
+      })
+
+      const appointmentPayload = {
+        userId: user.id,
+        customerName: normalizeName(customerInfo.name),
+        customerPhone: normalizePhone(customerInfo.phone),
+        customerEmail: normalizeEmail(customerInfo.email),
+        serviceId: service.id || service.categoryId || 'CAR_REPAIR_SERVICE',
+        serviceName: service.title,
+        serviceCategory: service.category || 'Car Repair',
+        serviceSubcategory: service.subcategory || service.category || 'General',
+        serviceSpecification: service.specification || null,
+        serviceAddress: location.streetAddress,
+        serviceCity: location.city,
+        serviceState: location.state,
+        serviceZipCode: location.zipCode,
+        serviceCrossStreet: location.crossStreet || null,
+        serviceLatitude: geocodedLocation?.latitude ?? null,
+        serviceLongitude: geocodedLocation?.longitude ?? null,
+        appointmentDate: schedule.date,
+        timeSlot: schedule.timeSlot,
+        timeSlotStart: startTime,
+        timeSlotEnd: endTime,
+        status: appointmentStatus,
+        technicianId: schedule.technicianId || null,
+        technicianName: schedule.technicianName || null,
+        technicianPhotoUrl: schedule.technicianPhotoUrl || null,
+        technicianSpecialty: schedule.technicianSpecialty || null,
+        technicianRating: schedule.technicianRating || null,
+        vehicleId: null,
+        vehicleYear: toInt(vehicle.year, new Date().getFullYear()),
+        vehicleMake: vehicle.make || 'Unknown',
+        vehicleModel: vehicle.model || 'Unknown',
+        vehicleEngine: vehicle.engineSize || 'Unknown',
+        vehicleVin: vehicle.vin || null,
+        vehicleMileage: vehicle.mileage ? toInt(vehicle.mileage, 0) : null,
+        vehicleTrim: vehicle.trim || null,
+        vehicleFuelType: vehicle.fuelType || null,
+        vehicleTransmission: vehicle.transmission || null,
+        vehicleDriveType: vehicle.driveType || null,
+        vehicleBodyStyle: vehicle.bodyStyle || null,
+        vehicleDoors: vehicle.doors || null,
+        partsCost: service.partsCost ?? null,
+        laborCost: service.laborCost ?? null,
+        estimatedPrice: total,
+        finalPrice: total,
+        redeemedRewardId: schedule.rewardId || null,
+        discountApplied: schedule.rewardDiscount ?? null,
+        customerNotes: schedule.notes ?? null,
+        specialRequests: schedule.notes ?? null,
+      }
+
+      const appointmentId = await bookingService.createBooking(appointmentPayload)
+
+      const receiptRepo = new BookingReceiptRepository()
+      const vehicleInfoStr = `${vehicle.year} ${vehicle.make} ${vehicle.model}`.trim()
+
+      await receiptRepo.sendBookingReceipt({
+        customerEmail: normalizeEmail(customerInfo.email),
+        customerPhone: normalizePhone(customerInfo.phone),
+        customerName: normalizeName(customerInfo.name),
+        appointmentId,
+        serviceName: service.title,
+        serviceCategory: service.category || 'Car Repair',
+        appointmentDate: schedule.date,
+        timeSlot: schedule.timeSlot,
+        serviceAddress: location.streetAddress,
+        vehicleInfo: vehicleInfoStr || 'Vehicle not specified',
+        totalAmount: total,
+        paymentMethod: paymentMethodLabel,
+        confirmationNumber: confirmationCode,
+      })
+
+      setConfirmation({
+        appointmentId,
+        subtotal,
+        tax,
+        total,
+        paymentMethod: 'card',
+        technicianName: schedule.technicianName,
+        eta: schedule.timeSlot,
+      })
+
+      setShowPaymentFailedDialog(false)
+      setShowPaymentSuccessDialog(true)
     } catch (error) {
+      console.error('Checkout error:', error)
       setShowPaymentFailedDialog(true)
     } finally {
       setIsProcessing(false)
@@ -181,6 +252,14 @@ export function CheckoutStep({ onBack, onNext }: Props) {
     return (
       <div className="rounded-3xl border border-red-200 bg-red-50 px-4 py-6 text-center text-sm text-red-700">
         Missing request details. Please go back and complete each step.
+      </div>
+    )
+  }
+
+  if (!schedule) {
+    return (
+      <div className="rounded-3xl border border-red-200 bg-red-50 px-4 py-6 text-center text-sm text-red-700">
+        Missing scheduling details. Please choose a date, time, and technician before checkout.
       </div>
     )
   }

@@ -1,7 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useCarRepair } from '../car-repair-context'
+import { useAuth } from '@/contexts/auth-context'
+import { createSupabaseClient } from '@/lib/supabase'
 import {
   BODY_STYLES,
   DOOR_OPTIONS,
@@ -59,8 +61,24 @@ const INITIAL_VEHICLE: VehicleForm = {
   licensePlate: '',
 }
 
+type SavedVehicleRecord = {
+  id: string
+  year: string | null
+  make: string | null
+  model: string | null
+  engine_size: string | null
+  vin: string | null
+  nickname: string | null
+  is_primary: boolean | null
+  mileage: number | null
+  color: string | null
+  license_plate: string | null
+}
+
 export function VehicleStep({ onNext, onBack, serviceType }: Props) {
   const { vehicle, setVehicle } = useCarRepair()
+  const { user } = useAuth()
+  const supabase = useMemo(() => createSupabaseClient(), [])
   const [form, setForm] = useState<VehicleForm>(INITIAL_VEHICLE)
   const [hoveredVin, setHoveredVin] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -78,6 +96,13 @@ export function VehicleStep({ onNext, onBack, serviceType }: Props) {
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [isLoadingAttributes, setIsLoadingAttributes] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [savedVehicles, setSavedVehicles] = useState<SavedVehicleRecord[]>([])
+  const [savedVehiclesError, setSavedVehiclesError] = useState<string | null>(null)
+  const [isLoadingSavedVehicles, setIsLoadingSavedVehicles] = useState(false)
+  const [isSyncingVehicle, setIsSyncingVehicle] = useState(false)
+  const [activeVehicleId, setActiveVehicleId] = useState<string | null>(vehicle?.recordId ?? null)
+  const [vehiclesRefreshKey, setVehiclesRefreshKey] = useState(0)
+  const [hydratedFromSaved, setHydratedFromSaved] = useState(false)
 
   useEffect(() => {
     let isActive = true
@@ -117,7 +142,109 @@ export function VehicleStep({ onNext, onBack, serviceType }: Props) {
       color: vehicle.color ?? '',
       licensePlate: vehicle.licensePlate ?? '',
     })
+    setActiveVehicleId(vehicle.recordId ?? null)
   }, [vehicle])
+
+  useEffect(() => {
+    if (!user) {
+      setSavedVehicles([])
+      setActiveVehicleId(null)
+      return
+    }
+
+    let isActive = true
+    setIsLoadingSavedVehicles(true)
+    setSavedVehiclesError(null)
+
+    const loadVehicles = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('customer_vehicles')
+          .select('id, year, make, model, engine_size, vin, nickname, mileage, color, license_plate, is_primary')
+          .eq('customer_id', user.id)
+          .order('is_primary', { ascending: false })
+          .order('updated_at', { ascending: false })
+          .order('created_at', { ascending: false })
+
+        if (!isActive) return
+
+        if (error) {
+          console.error('Unable to load saved vehicles', error)
+          setSavedVehiclesError(error.message ?? 'Unable to load saved vehicles.')
+          setSavedVehicles([])
+          return
+        }
+        setSavedVehicles(data ?? [])
+      } catch (error: any) {
+        if (!isActive) return
+        console.error('Unable to load saved vehicles', error)
+        setSavedVehiclesError(error?.message ?? 'Unable to load saved vehicles.')
+        setSavedVehicles([])
+      } finally {
+        if (isActive) {
+          setIsLoadingSavedVehicles(false)
+        }
+      }
+    }
+
+    loadVehicles()
+
+    return () => {
+      isActive = false
+    }
+  }, [supabase, user, vehiclesRefreshKey])
+
+  const hydrateFormFromSaved = useCallback(
+    (record: SavedVehicleRecord) => {
+      const normalized: VehicleForm = {
+        year: record.year ?? '',
+        make: record.make ?? '',
+        model: record.model ?? '',
+        engineSize: record.engine_size ?? '',
+        mileage: record.mileage != null ? record.mileage.toString() : '',
+        vin: record.vin ?? '',
+        trim: record.nickname ?? '',
+        fuelType: form.fuelType,
+        transmission: form.transmission,
+        driveType: form.driveType,
+        bodyStyle: form.bodyStyle,
+        doors: form.doors,
+        tireSize: form.tireSize,
+        color: record.color ?? '',
+        licensePlate: record.license_plate ?? '',
+      }
+
+      setForm((prev) => ({ ...prev, ...normalized }))
+      setActiveVehicleId(record.id)
+      setVehicle({
+        year: normalized.year,
+        make: normalized.make,
+        model: normalized.model,
+        engineSize: normalized.engineSize,
+        mileage: normalized.mileage,
+        vin: normalized.vin,
+        trim: normalized.trim,
+        fuelType: normalized.fuelType,
+        transmission: normalized.transmission,
+        driveType: normalized.driveType,
+        bodyStyle: normalized.bodyStyle,
+        doors: normalized.doors,
+        tireSize: normalized.tireSize,
+        color: normalized.color,
+        licensePlate: normalized.licensePlate,
+        recordId: record.id,
+      })
+    },
+    [form.bodyStyle, form.doors, form.driveType, form.fuelType, form.tireSize, form.transmission, setVehicle]
+  )
+
+  useEffect(() => {
+    if (vehicle || hydratedFromSaved) return
+    if (!savedVehicles.length) return
+    const primary = savedVehicles.find((item) => item.is_primary) ?? savedVehicles[0]
+    hydrateFormFromSaved(primary)
+    setHydratedFromSaved(true)
+  }, [hydrateFormFromSaved, hydratedFromSaved, savedVehicles, vehicle])
 
   useEffect(() => {
     if (!form.year) {
@@ -296,11 +423,56 @@ export function VehicleStep({ onNext, onBack, serviceType }: Props) {
     return Object.keys(nextErrors).length === 0
   }
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const persistVehicle = async (payload: VehicleForm): Promise<string | undefined> => {
+    if (!user) {
+      return activeVehicleId ?? undefined
+    }
+
+    const normalizedMileage = payload.mileage ? Number(payload.mileage.replace(/[^0-9]/g, '')) || null : null
+    const supabasePayload = {
+      customer_id: user.id,
+      year: payload.year,
+      make: payload.make,
+      model: payload.model,
+      engine_size: payload.engineSize,
+      vin: payload.vin || null,
+      nickname: payload.trim || null,
+      is_primary: true,
+      mileage: normalizedMileage,
+      color: payload.color || null,
+      license_plate: payload.licensePlate || null,
+    }
+
+    setIsSyncingVehicle(true)
+    setSavedVehiclesError(null)
+    try {
+      if (activeVehicleId) {
+        const { error } = await supabase.from('customer_vehicles').update(supabasePayload).eq('id', activeVehicleId)
+        if (error) throw error
+        return activeVehicleId
+      } else {
+        const { data, error } = await supabase
+          .from('customer_vehicles')
+          .insert(supabasePayload as never)
+          .select('id')
+          .single()
+        if (error) throw error
+        return data?.id ?? undefined
+      }
+    } catch (error: any) {
+      console.error('Unable to save vehicle to Supabase', error)
+      setSavedVehiclesError(error?.message ?? 'Unable to save vehicle right now. Please try again.')
+      throw error
+    } finally {
+      setIsSyncingVehicle(false)
+    }
+  }
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!validate()) return
 
-    setVehicle({
+    const nextVehicle = {
       year: form.year,
       make: form.make,
       model: form.model,
@@ -316,13 +488,72 @@ export function VehicleStep({ onNext, onBack, serviceType }: Props) {
       tireSize: form.tireSize,
       color: form.color,
       licensePlate: form.licensePlate,
-    })
+    }
 
-    onNext()
+    try {
+      const recordId = await persistVehicle(nextVehicle)
+      setVehicle({ ...nextVehicle, recordId: recordId ?? undefined })
+      if (recordId && recordId !== activeVehicleId) {
+        setActiveVehicleId(recordId)
+      }
+      setVehiclesRefreshKey((value) => value + 1)
+      onNext()
+    } catch {
+      // Errors handled via savedVehiclesError state; keep user on step
+    }
   }
 
   return (
     <div className="space-y-6">
+      {user && (
+        <div className="space-y-2 rounded-2xl border border-gray-200 bg-white/60 p-4 text-left">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-[#0D1B2A]">Saved vehicles</p>
+            <button
+              type="button"
+              onClick={() => setVehiclesRefreshKey((value) => value + 1)}
+              className="text-xs font-semibold text-[#0D1B2A] hover:underline"
+            >
+              Refresh
+            </button>
+          </div>
+          {savedVehicles.length === 0 && !isLoadingSavedVehicles && (
+            <p className="text-xs text-gray-500">No vehicles saved yet. We’ll store your next one automatically.</p>
+          )}
+          <div className="mt-2 grid gap-2">
+            {savedVehicles.map((record) => {
+              const label = [record.year, record.make, record.model].filter(Boolean).join(' ')
+              const meta = [record.nickname, record.color].filter(Boolean).join(' • ')
+              const isSelected = activeVehicleId === record.id
+              return (
+                <button
+                  key={record.id}
+                  type="button"
+                  onClick={() => hydrateFormFromSaved(record)}
+                  className={`rounded-xl border px-4 py-2 text-left text-sm transition ${
+                    isSelected ? 'border-[#0D1B2A] bg-[#0D1B2A]/5 text-[#0D1B2A]' : 'border-gray-200 text-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">{label || 'Vehicle'}</span>
+                    {record.is_primary && (
+                      <span className="rounded-full bg-[#0D1B2A]/10 px-2 py-0.5 text-xs font-semibold text-[#0D1B2A]">
+                        Primary
+                      </span>
+                    )}
+                  </div>
+                  {meta && <p className="text-[11px] text-gray-500">{meta}</p>}
+                </button>
+              )
+            })}
+          </div>
+          {isLoadingSavedVehicles && <p className="text-xs text-gray-500">Loading saved vehicles…</p>}
+          {savedVehiclesError && (
+            <p className="text-xs font-semibold text-rose-600">Saved vehicles not available: {savedVehiclesError}</p>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2 text-center">
         <p className="text-4xl" aria-hidden>
           🚗
@@ -504,9 +735,10 @@ export function VehicleStep({ onNext, onBack, serviceType }: Props) {
           </button>
           <button
             type="submit"
-            className="rounded-xl bg-[#0D1B2A] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#0A1625]"
+            disabled={isSyncingVehicle}
+            className="rounded-xl bg-[#0D1B2A] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#0A1625] disabled:cursor-not-allowed disabled:opacity-70"
           >
-            Continue
+            {isSyncingVehicle ? 'Saving…' : 'Continue'}
           </button>
         </div>
       </form>

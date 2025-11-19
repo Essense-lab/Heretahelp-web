@@ -96,9 +96,7 @@ export async function fetchVehicleAttributes(year: number, make: string, model: 
   try {
     const { data, error } = await supabase
       .from('nhtsa_vehicles')
-      .select(
-        'engine_displacement, engine_cylinders, fuel_type_primary, transmission_style, transmission_speeds, drive_type, body_class, doors'
-      )
+      .select('*')
       .eq('year', year)
       .eq('make_name', make)
       .eq('model_name', model)

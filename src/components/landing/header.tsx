@@ -4,12 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
-interface HeaderProps {
-  onSignIn: () => void
-  onGetStarted: () => void
-}
-
-export function Header({ onSignIn, onGetStarted }: HeaderProps) {
+export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const navigation = [
@@ -46,18 +41,18 @@ export function Header({ onSignIn, onGetStarted }: HeaderProps) {
 
           {/* Desktop auth buttons */}
           <div className="ml-10 hidden space-x-4 lg:block">
-            <button
-              onClick={onSignIn}
+            <Link
+              href="/auth/sign-in"
               className="inline-block rounded-md border border-transparent py-2 px-4 text-base font-medium text-primary hover:bg-primary-50 transition-colors"
             >
               Sign In
-            </button>
-            <button
-              onClick={onGetStarted}
+            </Link>
+            <Link
+              href="/auth/sign-up"
               className="inline-block rounded-md border border-transparent bg-primary py-2 px-4 text-base font-medium text-white hover:bg-primary-700 transition-colors"
             >
               Get Started
-            </button>
+            </Link>
           </div>
 
           {/* Mobile menu button */}
@@ -92,24 +87,20 @@ export function Header({ onSignIn, onGetStarted }: HeaderProps) {
               </Link>
             ))}
             <div className="mt-4 space-y-2">
-              <button
-                onClick={() => {
-                  onSignIn()
-                  setMobileMenuOpen(false)
-                }}
+              <Link
+                href="/auth/sign-in"
+                onClick={() => setMobileMenuOpen(false)}
                 className="block w-full rounded-md px-3 py-2 text-base font-medium text-primary hover:bg-primary-50"
               >
                 Sign In
-              </button>
-              <button
-                onClick={() => {
-                  onGetStarted()
-                  setMobileMenuOpen(false)
-                }}
+              </Link>
+              <Link
+                href="/auth/sign-up"
+                onClick={() => setMobileMenuOpen(false)}
                 className="block w-full rounded-md bg-primary px-3 py-2 text-base font-medium text-white hover:bg-primary-700"
               >
                 Get Started
-              </button>
+              </Link>
             </div>
           </div>
         </div>
